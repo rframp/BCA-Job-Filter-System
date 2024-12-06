@@ -5,7 +5,7 @@ import io
 
 def main():
     st.set_page_config(layout="wide")  # Enable wide mode for the app
-    st.title("Dynamic Data Filtering App")
+    st.title("BCA Filtering Tool")
 
     # Inject custom CSS for scrollbar
     st.markdown(
