@@ -152,7 +152,7 @@ def main():
 
 
         # Add a toggle checkbox to show/hide the dataset preview
-        if st.checkbox("Show Dataset Preview", value=True):  # Default is checked (visible)
+        if st.checkbox("Show Dataset Preview", value=False):  # Default is checked (visible)
             st.subheader("Dataset Preview")
             st.dataframe(data, width=1800, height=400)  # Adjust dimensions if needed
 
