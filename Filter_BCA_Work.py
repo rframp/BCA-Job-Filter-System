@@ -19,7 +19,7 @@ def main():
 
         /* Scrollbar track */
         ::-webkit-scrollbar-track {
-            background: #e0e0e0; /* Light grey background for the track */
+            background: #555; /* Light grey background for the track */
         }
 
         /* Scrollbar thumb (the draggable handle) */
