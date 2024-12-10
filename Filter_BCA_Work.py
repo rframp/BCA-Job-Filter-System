@@ -87,8 +87,8 @@ def main():
             flex-grow: 0 !important; /* Prevent growing */
             flex-shrink: 0 !important; /* Prevent shrinking */
             margin-right:600px !important;
-            width: 295px !important; /* Explicitly define size */
-            height: 135px !important; /* Explicitly define size */
+            width: 315px !important; /* Explicitly define size */
+            height: 145px !important; /* Explicitly define size */
         }}
         </style>
         """,
