@@ -2,55 +2,116 @@ import pandas as pd
 import streamlit as st
 import re
 import io
+import os
+import base64
+
+def get_image_as_base64(image_path):
+    with open(image_path, "rb") as image_file:
+        return base64.b64encode(image_file.read()).decode("utf-8")
 
 def main():
     st.set_page_config(layout="wide")  # Enable wide mode for the app
-    st.title("BCA Filtering Tool")
+ 
+    st.write("Current working directory:", os.getcwd())  # Verify the current working directory
 
-    # Inject custom CSS for scrollbar
+    # Paths to images
+    x_image_path = "images/X.png"
+    bca_image_path = "images/BCA.png"
+    cmg_image_path = "images/CMG.png"
+
+    # Convert images to Base64
+    x_image_base64 = get_image_as_base64(x_image_path)
+    bca_image_base64 = get_image_as_base64(bca_image_path)
+    cmg_image_base64 = get_image_as_base64(cmg_image_path)
+
+    # Inject custom CSS for scrollbar and layout
     st.markdown(
-        """
+        f"""
         <style>
         /* Custom scrollbar for all scrollable content */
-        ::-webkit-scrollbar {
+        ::-webkit-scrollbar {{
             width: 15px; /* Width of the vertical scrollbar */
             height: 15px; /* Height of the horizontal scrollbar */
-        }
+        }}
 
         /* Scrollbar track */
-        ::-webkit-scrollbar-track {
+        ::-webkit-scrollbar-track {{
             background: #555; /* Light grey background for the track */
-        }
+        }}
 
         /* Scrollbar thumb (the draggable handle) */
-        ::-webkit-scrollbar-thumb {
+        ::-webkit-scrollbar-thumb {{
             background: #555; /* Default color of the scrollbar thumb */
             border-radius: 10px; /* Rounded corners */
             border: 3px solid #e0e0e0; /* Add a border to make it distinct */
-        }
+        }}
 
         /* Scrollbar thumb hover (when the mouse hovers over the thumb) */
-        ::-webkit-scrollbar-thumb:hover {
+        ::-webkit-scrollbar-thumb:hover {{
             background: #555 !important; /* Dark grey for better visibility when hovered */
             border: 3px solid #e0e0e0; /* Maintain the border color */
-        }
+        }}
 
         /* Scrollbar thumb active (when clicked or dragged) */
-        ::-webkit-scrollbar-thumb:active {
+        ::-webkit-scrollbar-thumb:active {{
             background: #333 !important; /* Even darker grey when actively dragging */
             border: 3px solid #e0e0e0; /* Maintain the border color */
-        }
+        }}
 
         /* Scrollbar corner (intersection of horizontal and vertical scrollbars) */
-        ::-webkit-scrollbar-corner {
+        ::-webkit-scrollbar-corner {{
             background: #e0e0e0; /* Matches the track color */
-        }
+        }}
+
+        /* Custom image alignment section */
+        .image-container {{
+            display: flex;
+            justify-content: space-between; /* Adjust spacing between images */
+            align-items: center;
+            margin-bottom: 20px; /* Add space below the images */
+        }}
+
+        /* Individual image positions */
+        .bca-img {{
+            flex-grow: 0 !important; /* Prevent growing */
+            flex-shrink: 0 !important; /* Prevent shrinking */
+            margin-left: 600px !important;
+            width: 225px !important;
+            height: 125px !important; /* Explicitly define size */
+        }}
+        .x-img {{
+            flex-grow: 0 !important; /* Prevent growing */
+            flex-shrink: 0 !important; /* Prevent shrinking */
+            margin: 0 20px !important;
+            width: 85px !important; /* Explicitly define size */
+            height: 85px !important; /* Explicitly define size */
+        }}
+        .cmg-img {{
+            flex-grow: 0 !important; /* Prevent growing */
+            flex-shrink: 0 !important; /* Prevent shrinking */
+            margin-right:600px !important;
+            width: 225px !important; /* Explicitly define size */
+            height: 125px !important; /* Explicitly define size */
+        }}
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    # File uploader
+    # HTML for displaying images
+    image_html = f"""
+    <div class="image-container">
+        <img src="data:image/png;base64,{bca_image_base64}" alt="BCA" class="bca-img">
+        <img src="data:image/png;base64,{x_image_base64}" alt="X" class="x-img">
+        <img src="data:image/png;base64,{cmg_image_base64}" alt="CMG" class="cmg-img">
+    </div>
+    """
+
+    # Inject the image HTML into the Streamlit app
+    st.markdown(image_html, unsafe_allow_html=True)
+
+    st.title("BCA Filtering Tool")
+    
     uploaded_file = st.file_uploader("Upload your Excel or CSV file", type=["xlsx", "csv"])
     if uploaded_file:
         # Read the file
@@ -178,11 +239,23 @@ def main():
         for column in filter_order:
             if column not in data.columns:
                 continue
+
             if column == 'Distance':
                 min_val, max_val = int(data[column].min()), int(data[column].max())
-                selected_range = st.sidebar.slider(f"Filter {column}", min_val, max_val, (min_val, max_val))
-                filters[column] = selected_range
+                if min_val == max_val:
+                    # Handle case where min_val == max_val
+                    st.sidebar.write(f"Only one value available for {column}: {min_val}")
+                else:
+                    # Add the slider when min_val and max_val are different
+                    selected_range = st.sidebar.slider(
+                        f"Filter {column}",
+                        min_value=min_val,
+                        max_value=max_val,
+                        value=(min_val, max_val)
+                    )
+                    filters[column] = selected_range
             else:
+                # Handle non-numeric columns with a multiselect
                 unique_values = data[column].unique().tolist()
                 selected_values = st.sidebar.multiselect(f"Filter {column}", options=unique_values)
                 if selected_values:
