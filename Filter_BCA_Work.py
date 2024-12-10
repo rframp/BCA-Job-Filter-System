@@ -74,21 +74,21 @@ def main():
             flex-grow: 0 !important; /* Prevent growing */
             flex-shrink: 0 !important; /* Prevent shrinking */
             margin-left: 600px !important;
-            width: 225px !important;
+            width: 275px !important;
             height: 125px !important; /* Explicitly define size */
         }}
         .x-img {{
             flex-grow: 0 !important; /* Prevent growing */
             flex-shrink: 0 !important; /* Prevent shrinking */
             margin: 0 20px !important;
-            width: 85px !important; /* Explicitly define size */
-            height: 85px !important; /* Explicitly define size */
+            width: 95px !important; /* Explicitly define size */
+            height: 95px !important; /* Explicitly define size */
         }}
         .cmg-img {{
             flex-grow: 0 !important; /* Prevent growing */
             flex-shrink: 0 !important; /* Prevent shrinking */
             margin-right:600px !important;
-            width: 225px !important; /* Explicitly define size */
+            width: 275px !important; /* Explicitly define size */
             height: 125px !important; /* Explicitly define size */
         }}
         </style>
