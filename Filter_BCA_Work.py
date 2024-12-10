@@ -80,7 +80,6 @@ def main():
         .x-img {{
             flex-grow: 0 !important; /* Prevent growing */
             flex-shrink: 0 !important; /* Prevent shrinking */
-            margin: 0 20px !important;
             width: 95px !important; /* Explicitly define size */
             height: 95px !important; /* Explicitly define size */
         }}
