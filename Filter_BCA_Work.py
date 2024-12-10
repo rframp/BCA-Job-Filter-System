@@ -11,8 +11,6 @@ def get_image_as_base64(image_path):
 
 def main():
     st.set_page_config(layout="wide")  # Enable wide mode for the app
- 
-    st.write("Current working directory:", os.getcwd())  # Verify the current working directory
 
     # Paths to images
     x_image_path = "images/X.png"
