@@ -14,8 +14,8 @@ def main():
 
     # Paths to images
     x_image_path = "images/X_New.png"
-    bca_image_path = "images/BCA.png"
-    cmg_image_path = "images/CMG.png"
+    bca_image_path = "images/BCA_New.png"
+    cmg_image_path = "images/CMG_New.png"
 
     # Convert images to Base64
     x_image_base64 = get_image_as_base64(x_image_path)
