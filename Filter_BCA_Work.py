@@ -13,7 +13,7 @@ def main():
     st.set_page_config(layout="wide")  # Enable wide mode for the app
 
     # Paths to images
-    x_image_path = "images/X.png"
+    x_image_path = "images/X_New.png"
     bca_image_path = "images/BCA.png"
     cmg_image_path = "images/CMG.png"
 
