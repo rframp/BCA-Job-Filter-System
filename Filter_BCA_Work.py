@@ -4,14 +4,152 @@ import re
 import io
 import os
 import base64
+import time
+import folium
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from streamlit_folium import st_folium
+
+
+st.set_page_config(layout="wide")  # Enable wide mode for the app
+
+st.markdown(
+    """
+    <style>
+    .center-content {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+    .center-table {
+        margin: auto;
+        width: 80%; /* Adjust width as needed */
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+def debug_map_state(event):
+    print(f"{event}:")
+    print(f" - st.session_state['map_center']: {st.session_state.get('map_center')}")
+    print(f" - st.session_state['map_zoom']: {st.session_state.get('map_zoom')}")
+
 
 def get_image_as_base64(image_path):
     with open(image_path, "rb") as image_file:
         return base64.b64encode(image_file.read()).decode("utf-8")
+    
 
+# Function to geocode postcodes
+@st.cache_data(show_spinner=True)
+def geocode_postcode(postcode):
+    # Initialize geolocator
+    geolocator = Nominatim(user_agent="streamlit_geocoder", timeout=10)
+    try:
+        location = geolocator.geocode(postcode)
+        if location:
+            return location.latitude, location.longitude
+    except GeocoderTimedOut:
+        time.sleep(1)
+        return geocode_postcode(postcode)  # Retry on timeout
+    return None, None
+
+# Function to geocode postcodes in parallel
+def parallel_geocode(postcodes):
+    results = []
+    with ThreadPoolExecutor(max_workers=10) as executor:  # Adjust workers for performance
+        future_to_postcode = {executor.submit(geocode_postcode, postcode): postcode for postcode in postcodes}
+        for future in as_completed(future_to_postcode):
+            postcode = future_to_postcode[future]
+            try:
+                results.append((postcode, future.result()))
+            except Exception as e:
+                st.warning(f"Failed to geocode {postcode}: {e}")
+                results.append((postcode, (None, None)))
+    return results
+
+# Function to process geocoding for the dataset with progress bar
+@st.cache_data(show_spinner=False)
+def process_geocoding(data):
+    # Deduplicate postcodes to minimize requests
+    unique_postcodes = pd.concat([data['CollPostCode'], data['DelPostCode']]).dropna().unique()
+    total_postcodes = len(unique_postcodes)
+
+    # Initialize progress bar
+    progress_bar = st.progress(0)
+
+    # Placeholder for results
+    geocoded_results = []
+
+    # Geocode postcodes with progress updates
+    for idx, postcode in enumerate(unique_postcodes):
+        # Perform geocoding (replace this with the actual geocoding logic)
+        lat, lon = geocode_postcode(postcode)  # Replace `geocode_postcode` with your actual geocoding function
+        geocoded_results.append((postcode, (lat, lon)))
+
+        # Update progress bar
+        progress_bar.progress(int(((idx + 1) / total_postcodes) * 100))
+
+    # Map geocoding results to a dictionary
+    geocode_dict = {postcode: coords for postcode, coords in geocoded_results}
+
+    # Add latitude and longitude columns to the dataset
+    data['CollLat'] = data['CollPostCode'].map(lambda x: geocode_dict.get(x, (None, None))[0])
+    data['CollLon'] = data['CollPostCode'].map(lambda x: geocode_dict.get(x, (None, None))[1])
+    data['DelLat'] = data['DelPostCode'].map(lambda x: geocode_dict.get(x, (None, None))[0])
+    data['DelLon'] = data['DelPostCode'].map(lambda x: geocode_dict.get(x, (None, None))[1])
+
+    # Replace missing latitude/longitude with "N/A"
+    data.fillna({"CollLat": "N/A", "CollLon": "N/A", "DelLat": "N/A", "DelLon": "N/A"}, inplace=True)
+
+    return data
+
+
+def create_folium_map(data, highlighted_job=None):
+    """
+    Generate a Folium map with markers for collection and delivery points.
+    Highlights markers for the selected job and retains map zoom/center.
+    """
+    # Always initialize map with the current session state
+    map_center = st.session_state.get("map_center", [data["CollLat"].mean(), data["CollLon"].mean()])
+    if isinstance(map_center, dict):  # Convert dict to list if needed
+        map_center = [map_center["lat"], map_center["lng"]]
+    map_zoom = st.session_state.get("map_zoom", 9)
+
+    # Create the map
+    folium_map = folium.Map(location=map_center, zoom_start=map_zoom)
+
+    # Add markers for each row in the data
+    for _, row in data.iterrows():
+        is_highlighted = highlighted_job == row["JobNumber"]
+        coll_color = "black" if is_highlighted else "blue"
+        del_color = "black" if is_highlighted else "green"
+
+        # Collection point
+        if row["CollLat"] != "N/A" and row["CollLon"] != "N/A":
+            folium.Marker(
+                location=[row["CollLat"], row["CollLon"]],
+                popup=f"<b>Job Number:</b> {row['JobNumber']}<br><b>Type:</b> Collection",
+                tooltip=f"Collection Point - Job: {row['JobNumber']}",
+                icon=folium.Icon(color=coll_color, icon="info-sign"),
+            ).add_to(folium_map)
+
+        # Delivery point
+        if row["DelLat"] != "N/A" and row["DelLon"] != "N/A":
+            folium.Marker(
+                location=[row["DelLat"], row["DelLon"]],
+                popup=f"<b>Job Number:</b> {row['JobNumber']}<br><b>Type:</b> Delivery",
+                tooltip=f"Delivery Point - Job: {row['JobNumber']}",
+                icon=folium.Icon(color=del_color, icon="flag"),
+            ).add_to(folium_map)
+
+    return folium_map
+    
 def main():
-    st.set_page_config(layout="wide")  # Enable wide mode for the app
-
+    
     # Paths to images
     x_image_path = "images/X_New.png"
     bca_image_path = "images/BCA_New.png"
@@ -67,6 +205,7 @@ def main():
             justify-content: space-between; /* Adjust spacing between images */
             align-items: center;
             margin-bottom: 20px; /* Add space below the images */
+            position: relative;
         }}
 
         /* Individual image positions */
@@ -134,9 +273,65 @@ def main():
         for col in date_columns:
             if col in data.columns:
                 data[col] = pd.to_datetime(data[col], errors='coerce').dt.strftime('%d/%m/%Y')
+
         # Clean and standardize postcodes
         data['CollPostCode'] = data['CollPostCode'].str.strip().str.upper()
         data['DelPostCode'] = data['DelPostCode'].str.strip().str.upper()
+
+        with st.spinner("Geocoding postcodes... This may take some time."):
+            # Deduplicate postcodes to minimize requests
+            unique_postcodes = pd.concat([data['CollPostCode'], data['DelPostCode']]).dropna().unique()
+            total_postcodes = len(unique_postcodes)
+
+            # Initialize progress bar and timer display
+            progress_bar = st.progress(0)
+            timer_placeholder = st.empty()
+
+            # Placeholder for geocoded results
+            geocoded_results = []
+
+            # Start timing
+            start_time = time.time()
+
+            # Geocode postcodes with progress updates
+            for idx, postcode in enumerate(unique_postcodes):
+                # Start timing for this iteration
+                iteration_start_time = time.time()
+
+                # Simulate geocoding (replace this with your geocoding logic)
+                lat, lon = geocode_postcode(postcode)  # Replace with your actual geocoding function
+                geocoded_results.append((postcode, (lat, lon)))
+
+                # Calculate progress and update progress bar
+                progress = int(((idx + 1) / total_postcodes) * 100)
+                progress_bar.progress(progress)
+
+                # Calculate average time per postcode dynamically
+                elapsed_time = time.time() - start_time
+                avg_time_per_postcode = elapsed_time / (idx + 1)
+
+                # Estimate total and remaining time
+                estimated_total_time = avg_time_per_postcode * total_postcodes
+                remaining_time = estimated_total_time - elapsed_time
+
+                # Update timer display dynamically
+                timer_placeholder.write(f"Estimated time remaining: {remaining_time:.2f} seconds")
+
+            # Map geocoding results to a dictionary
+            geocode_dict = {postcode: coords for postcode, coords in geocoded_results}
+
+            # Add latitude and longitude columns to the dataset
+            data['CollLat'] = data['CollPostCode'].map(lambda x: geocode_dict.get(x, (None, None))[0])
+            data['CollLon'] = data['CollPostCode'].map(lambda x: geocode_dict.get(x, (None, None))[1])
+            data['DelLat'] = data['DelPostCode'].map(lambda x: geocode_dict.get(x, (None, None))[0])
+            data['DelLon'] = data['DelPostCode'].map(lambda x: geocode_dict.get(x, (None, None))[1])
+        
+        progress_bar.empty()
+        timer_placeholder.empty()
+
+        # Ensure the geocoded data is valid
+        if data[['CollLat', 'CollLon', 'DelLat', 'DelLon']].isna().all().all():
+            st.error("No valid geolocation data found. Please check your file.")
 
         # Function to extract letters before the first number
         def extract_outward_code(postcode):
@@ -210,10 +405,9 @@ def main():
 
 
         # Add a toggle checkbox to show/hide the dataset preview
-        if st.checkbox("Show Dataset Preview", value=False):  # Default is checked (visible)
+        if st.checkbox("Show Dataset Preview", value=False): 
             st.subheader("Dataset Preview")
             st.dataframe(data, width=1800, height=400)  # Adjust dimensions if needed
-
 
         # Sidebar filters
         st.sidebar.title("Filter Options")
@@ -265,11 +459,13 @@ def main():
             elif isinstance(filter_value, list):  # Dropdown filter
                 data = data[data[column].isin(filter_value)]
 
-        st.subheader("Filtered Data")
-        st.dataframe(data, width=1800, height=900)
+        # Display filtered dataset
+        st.markdown('<div class="center-content">', unsafe_allow_html=True)
+        st.subheader("Filtered Dataset")
+        st.dataframe(data, width=1800, height=800)
+        st.markdown('</div>', unsafe_allow_html=True)
 
         # Export filtered data
-        st.subheader("Export Filtered Data")
         if st.button("Export Filtered Data"):
             try:
                 buffer = io.BytesIO()
@@ -278,6 +474,81 @@ def main():
                 st.download_button("Download Filtered Data", data=buffer, file_name="filtered_data.csv", mime="text/csv")
             except Exception as e:
                 st.error(f"An error occurred while exporting the file: {e}")
+
+        # Initialize session state for highlighted job and map state
+        if "highlighted_job" not in st.session_state:
+            st.session_state["highlighted_job"] = None
+        if "map_zoom" not in st.session_state:
+            st.session_state["map_zoom"] = 8  # Default zoom
+        if "map_center" not in st.session_state:
+            st.session_state["map_center"] = [data["CollLat"].mean(), data["CollLon"].mean()]  # Default center
+
+        # Debug: Initial session state
+        print("Initial State:")
+        print(f" - Map Center: {st.session_state['map_center']}")
+        print(f" - Map Zoom: {st.session_state['map_zoom']}")
+
+        # Generate the map with preserved state
+        folium_map = create_folium_map(
+            data,
+            highlighted_job=st.session_state["highlighted_job"],
+        )
+
+        # Render the map
+        st_data = st_folium(folium_map, width=1800, height=800, key="main_map")
+
+        # Debugging: Check st_data output
+        print(f"st_data: {st_data}")
+
+        # Capture current map state from st_data
+        if st_data:
+            if "zoom" in st_data and "center" in st_data:
+                new_zoom = st_data["zoom"]
+                new_center = st_data["center"]
+
+                # Debugging: Check detected changes
+                print(f"Detected State Change - Zoom: {new_zoom}, Center: {new_center}")
+
+                # Only update session state if there are actual changes
+                if new_zoom != st.session_state["map_zoom"] or new_center != st.session_state["map_center"]:
+                    st.session_state["map_zoom"] = new_zoom
+                    st.session_state["map_center"] = new_center
+                    print("State Updated:")
+                    print(f" - Map Center: {st.session_state['map_center']}")
+                    print(f" - Map Zoom: {st.session_state['map_zoom']}")
+                else:
+                    print("No Change in State")
+
+        # Process marker clicks
+        if st_data and st_data.get("last_object_clicked") is not None:
+            clicked_point = st_data["last_object_clicked"]
+            print(f"Valid Marker Clicked: {clicked_point}")
+
+            if clicked_point:
+                clicked_lat = clicked_point["lat"]
+                clicked_lon = clicked_point["lng"]
+
+                # Match the clicked point to a job
+                new_highlighted_job = None
+                for _, row in data.iterrows():
+                    if (
+                        (row["CollLat"], row["CollLon"]) == (clicked_lat, clicked_lon) or
+                        (row["DelLat"], row["DelLon"]) == (clicked_lat, clicked_lon)
+                    ):
+                        new_highlighted_job = row["JobNumber"]
+                        break
+
+                # Only re-render map if a new job is highlighted
+                if new_highlighted_job and new_highlighted_job != st.session_state["highlighted_job"]:
+                    st.session_state["highlighted_job"] = new_highlighted_job
+                    folium_map = create_folium_map(
+                        data,
+                        highlighted_job=st.session_state["highlighted_job"],
+                    )
+                    st_folium(folium_map, width=1800, height=800, key="main_map")
+        else:
+            print("No valid marker clicked.")
+
 
 if __name__ == "__main__":
     main()
