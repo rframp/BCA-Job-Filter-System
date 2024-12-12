@@ -108,42 +108,54 @@ def process_geocoding(data):
     return data
 
 
-def create_folium_map(data, highlighted_job=None):
+def create_folium_map(data):
     """
     Generate a Folium map with markers for collection and delivery points.
-    Highlights markers for the selected job and retains map zoom/center.
+    Combines markers with the same location into a single marker and adds job count.
     """
-    # Always initialize map with the current session state
-    map_center = st.session_state.get("map_center", [data["CollLat"].mean(), data["CollLon"].mean()])
-    if isinstance(map_center, dict):  # Convert dict to list if needed
-        map_center = [map_center["lat"], map_center["lng"]]
-    map_zoom = st.session_state.get("map_zoom", 9)
+    # Define a default center and zoom for the map
+    map_center = [data["CollLat"].mean(), data["CollLon"].mean()]
+    map_zoom = 9
 
     # Create the map
     folium_map = folium.Map(location=map_center, zoom_start=map_zoom)
 
-    # Add markers for each row in the data
-    for _, row in data.iterrows():
-        is_highlighted = highlighted_job == row["JobNumber"]
-        coll_color = "black" if is_highlighted else "blue"
-        del_color = "black" if is_highlighted else "green"
-
-        # Collection point
+    # Group collection points by location
+    coll_grouped = data.groupby(["CollLat", "CollLon"])["JobNumber"].apply(list).reset_index()
+    for _, row in coll_grouped.iterrows():
         if row["CollLat"] != "N/A" and row["CollLon"] != "N/A":
+            job_numbers = row["JobNumber"]
+            job_count = len(job_numbers)
+            job_list = ", ".join(job_numbers)
+            popup_content = f"""
+                <b>Total Jobs:</b> {job_count}<br>
+                <b>Job Numbers:</b> {job_list}<br>
+                <b>Type:</b> Collection
+            """
             folium.Marker(
                 location=[row["CollLat"], row["CollLon"]],
-                popup=f"<b>Job Number:</b> {row['JobNumber']}<br><b>Type:</b> Collection",
-                tooltip=f"Collection Point - Job: {row['JobNumber']}",
-                icon=folium.Icon(color=coll_color, icon="info-sign"),
+                popup=popup_content,
+                tooltip=f"Collection Point - {job_count} Jobs",
+                icon=folium.Icon(color="blue", icon="info-sign"),
             ).add_to(folium_map)
 
-        # Delivery point
+    # Group delivery points by location
+    del_grouped = data.groupby(["DelLat", "DelLon"])["JobNumber"].apply(list).reset_index()
+    for _, row in del_grouped.iterrows():
         if row["DelLat"] != "N/A" and row["DelLon"] != "N/A":
+            job_numbers = row["JobNumber"]
+            job_count = len(job_numbers)
+            job_list = ", ".join(job_numbers)
+            popup_content = f"""
+                <b>Total Jobs:</b> {job_count}<br>
+                <b>Job Numbers:</b> {job_list}<br>
+                <b>Type:</b> Delivery
+            """
             folium.Marker(
                 location=[row["DelLat"], row["DelLon"]],
-                popup=f"<b>Job Number:</b> {row['JobNumber']}<br><b>Type:</b> Delivery",
-                tooltip=f"Delivery Point - Job: {row['JobNumber']}",
-                icon=folium.Icon(color=del_color, icon="flag"),
+                popup=popup_content,
+                tooltip=f"Delivery Point - {job_count} Jobs",
+                icon=folium.Icon(color="green", icon="flag"),
             ).add_to(folium_map)
 
     return folium_map
@@ -474,81 +486,12 @@ def main():
                 st.download_button("Download Filtered Data", data=buffer, file_name="filtered_data.csv", mime="text/csv")
             except Exception as e:
                 st.error(f"An error occurred while exporting the file: {e}")
-
-        # Initialize session state for highlighted job and map state
-        if "highlighted_job" not in st.session_state:
-            st.session_state["highlighted_job"] = None
-        if "map_zoom" not in st.session_state:
-            st.session_state["map_zoom"] = 8  # Default zoom
-        if "map_center" not in st.session_state:
-            st.session_state["map_center"] = [data["CollLat"].mean(), data["CollLon"].mean()]  # Default center
-
-        # Debug: Initial session state
-        print("Initial State:")
-        print(f" - Map Center: {st.session_state['map_center']}")
-        print(f" - Map Zoom: {st.session_state['map_zoom']}")
-
-        # Generate the map with preserved state
-        folium_map = create_folium_map(
-            data,
-            highlighted_job=st.session_state["highlighted_job"],
-        )
+                
+        # Generate the map
+        folium_map = create_folium_map(data)
 
         # Render the map
-        st_data = st_folium(folium_map, width=1800, height=800, key="main_map")
-
-        # Debugging: Check st_data output
-        print(f"st_data: {st_data}")
-
-        # Capture current map state from st_data
-        if st_data:
-            if "zoom" in st_data and "center" in st_data:
-                new_zoom = st_data["zoom"]
-                new_center = st_data["center"]
-
-                # Debugging: Check detected changes
-                print(f"Detected State Change - Zoom: {new_zoom}, Center: {new_center}")
-
-                # Only update session state if there are actual changes
-                if new_zoom != st.session_state["map_zoom"] or new_center != st.session_state["map_center"]:
-                    st.session_state["map_zoom"] = new_zoom
-                    st.session_state["map_center"] = new_center
-                    print("State Updated:")
-                    print(f" - Map Center: {st.session_state['map_center']}")
-                    print(f" - Map Zoom: {st.session_state['map_zoom']}")
-                else:
-                    print("No Change in State")
-
-        # Process marker clicks
-        if st_data and st_data.get("last_object_clicked") is not None:
-            clicked_point = st_data["last_object_clicked"]
-            print(f"Valid Marker Clicked: {clicked_point}")
-
-            if clicked_point:
-                clicked_lat = clicked_point["lat"]
-                clicked_lon = clicked_point["lng"]
-
-                # Match the clicked point to a job
-                new_highlighted_job = None
-                for _, row in data.iterrows():
-                    if (
-                        (row["CollLat"], row["CollLon"]) == (clicked_lat, clicked_lon) or
-                        (row["DelLat"], row["DelLon"]) == (clicked_lat, clicked_lon)
-                    ):
-                        new_highlighted_job = row["JobNumber"]
-                        break
-
-                # Only re-render map if a new job is highlighted
-                if new_highlighted_job and new_highlighted_job != st.session_state["highlighted_job"]:
-                    st.session_state["highlighted_job"] = new_highlighted_job
-                    folium_map = create_folium_map(
-                        data,
-                        highlighted_job=st.session_state["highlighted_job"],
-                    )
-                    st_folium(folium_map, width=1800, height=800, key="main_map")
-        else:
-            print("No valid marker clicked.")
-
+        st_folium(folium_map, width=1800, height=900)
 
 if __name__ == "__main__":
     main()
